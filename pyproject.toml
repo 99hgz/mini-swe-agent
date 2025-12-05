@@ -34,6 +34,8 @@ dependencies = [
     "pyyaml",
     "requests",
     "jinja2",
+    "pillow",
+    "playwright",  # used by scripts/image_to_html_workflow.py
     "litellm >= 1.75.5",  # want to have gpt-5 support
     "tenacity",
     "rich",
