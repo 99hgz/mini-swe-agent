@@ -1,9 +1,12 @@
 """Basic agent class. See https://mini-swe-agent.com/latest/advanced/control_flow/ for visual explanation."""
 
+import base64
+import mimetypes
 import re
 import subprocess
 import time
 from dataclasses import asdict, dataclass
+from pathlib import Path
 
 from jinja2 import StrictUndefined, Template
 
@@ -68,15 +71,45 @@ class DefaultAgent:
             **kwargs, **template_vars, **self.extra_template_vars
         )
 
-    def add_message(self, role: str, content: str, **kwargs):
+    def add_message(self, role: str, content: str | list[dict], **kwargs):
         self.messages.append({"role": role, "content": content, "timestamp": time.time(), **kwargs})
 
-    def run(self, task: str, **kwargs) -> tuple[str, str]:
+    def _encode_image(self, image: str | bytes | Path | dict) -> dict:
+        """Return an OpenAI-compatible image_url content block."""
+
+        if isinstance(image, dict):
+            return {"type": "image_url", "image_url": image}
+
+        if isinstance(image, bytes):
+            data = image
+            mime = "image/png"
+        else:
+            path = Path(image)
+            data = path.read_bytes()
+            mime = mimetypes.guess_type(path.name)[0] or "image/png"
+
+        encoded = base64.b64encode(data).decode("utf-8")
+        return {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{encoded}"}}
+
+    def run(
+        self,
+        task: str,
+        *,
+        images: list[str | bytes | Path | dict] | None = None,
+        **kwargs,
+    ) -> tuple[str, str]:
         """Run step() until agent is finished. Return exit status & message"""
         self.extra_template_vars |= {"task": task, **kwargs}
         self.messages = []
         self.add_message("system", self.render_template(self.config.system_template))
-        self.add_message("user", self.render_template(self.config.instance_template))
+        user_content: str | list[dict]
+        if images:
+            user_content = [{"type": "text", "text": self.render_template(self.config.instance_template)}]
+            user_content += [self._encode_image(image) for image in images]
+        else:
+            user_content = self.render_template(self.config.instance_template)
+
+        self.add_message("user", user_content)
         while True:
             try:
                 self.step()
